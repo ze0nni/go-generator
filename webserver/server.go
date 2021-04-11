@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"log"
+	"sync"
 	"text/template"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +11,9 @@ import (
 
 func Apply(router *gin.Engine) error {
 
-	s := server{}
+	s := server{
+		connections: make(map[*connection]struct{}),
+	}
 	router.LoadHTMLGlob("templates/*")
 	router.Static("js", "public")
 
@@ -22,6 +25,9 @@ func Apply(router *gin.Engine) error {
 
 type server struct {
 	index *template.Template
+
+	connMutex   sync.RWMutex
+	connections map[*connection]struct{}
 }
 
 func (s *server) IndexPage(c *gin.Context) {
@@ -33,11 +39,17 @@ func (s *server) WSConnect(c *gin.Context) {
 	if err != nil {
 		log.Printf("Error upgrade request: %s", err)
 	}
-	for {
-		t, msg, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		conn.WriteMessage(t, msg)
-	}
+	newConnection(s, conn)
+}
+
+func (s *server) addConnection(conn *connection) {
+	s.connMutex.Lock()
+	defer s.connMutex.Unlock()
+	s.connections[conn] = struct{}{}
+}
+
+func (s *server) removeConnection(conn *connection) {
+	s.connMutex.Lock()
+	defer s.connMutex.Unlock()
+	delete(s.connections, conn)
 }

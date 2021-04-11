@@ -26,38 +26,45 @@ function WsConnection(url) {
         let isConnected = false
         const listenedComponents = {}
 
-        const ws = new WebSocket(url)
-        ws.onopen = function() {
-                isConnected = true
+        var ws;
+        
+        function reconnect() {
+                ws = new WebSocket(url);
 
-                for (component of Object.values(listenedComponents)) {
-                        const connected = component.$options.webSockets.connected;
-                        if (null != connected) {
-                                connected.call(component)
+                ws.onopen = function() {
+                        isConnected = true
+
+                        for (component of Object.values(listenedComponents)) {
+                                const connected = component.$options.webSockets.connected;
+                                if (null != connected) {
+                                        connected.call(component)
+                                }
                         }
                 }
-        }
-        ws.onerror = function(event) {
-                isConnected = false
-        }
-        ws.onclose = function(event) {
-                isConnected = false
-                for (component of Object.values(listenedComponents)) {
-                        const disconnected = component.$options.webSockets.disconnected;
-                        if (null != disconnected) {
-                                disconnected.call(component, event.code)
-                        }
+                ws.onerror = function(event) {
+                        isConnected = false
                 }
-        }
-        ws.onmessage = function(event) {
-                const msg = JSON.parse(event.data)
-                const command = msg.command
-                for (component of Object.values(listenedComponents)) {
-                        const wsOptions = component.$options.webSockets
-                        if (wsOptions.command) {
-                                const reciever = wsOptions.command[command]
-                                if (reciever) {
-                                        reciever.call(component, msg)
+                ws.onclose = function(event) {
+                        isConnected = false
+                        for (component of Object.values(listenedComponents)) {
+                                const disconnected = component.$options.webSockets.disconnected;
+                                if (null != disconnected) {
+                                        disconnected.call(component, event.code)
+                                }
+                        }
+                        
+                        setTimeout(reconnect, 3);
+                }
+                ws.onmessage = function(event) {
+                        const msg = JSON.parse(event.data)
+                        const command = msg.command
+                        for (component of Object.values(listenedComponents)) {
+                                const wsOptions = component.$options.webSockets
+                                if (wsOptions.command) {
+                                        const reciever = wsOptions.command[command]
+                                        if (reciever) {
+                                                reciever.call(component, msg)
+                                        }
                                 }
                         }
                 }
@@ -89,6 +96,8 @@ function WsConnection(url) {
         function unlisten(component) {
                 delete listenedComponents[component._uid]
         }
+
+        reconnect();
 
         return {
                 wsocket,

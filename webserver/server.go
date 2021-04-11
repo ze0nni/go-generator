@@ -9,18 +9,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func Apply(router *gin.Engine) error {
+func Apply(router *gin.Engine) (WebServer, error) {
 
-	s := server{
+	s := &server{
 		connections: make(map[*connection]struct{}),
+		commands:    make(chan commandPerformerRec),
 	}
 	router.LoadHTMLGlob("templates/*")
 	router.Static("js", "public")
 
-	router.GET("", s.IndexPage)
-	router.GET("ws", s.WSConnect)
+	router.GET("", s.indexPage)
+	router.GET("ws", s.wSConnect)
 
-	return nil
+	return s, nil
+}
+
+type WebServer interface {
+	Run()
 }
 
 type server struct {
@@ -28,13 +33,23 @@ type server struct {
 
 	connMutex   sync.RWMutex
 	connections map[*connection]struct{}
+
+	commands chan commandPerformerRec
 }
 
-func (s *server) IndexPage(c *gin.Context) {
+type commandPerformer func(*connection, *server, []byte)
+
+type commandPerformerRec struct {
+	conn *connection
+	cmd  commandPerformer
+	body []byte
+}
+
+func (s *server) indexPage(c *gin.Context) {
 	c.HTML(200, "index.tmpl", nil)
 }
 
-func (s *server) WSConnect(c *gin.Context) {
+func (s *server) wSConnect(c *gin.Context) {
 	conn, err := websocket.Upgrade(c.Writer, c.Request, nil, 1024, 1024)
 	if err != nil {
 		log.Printf("Error upgrade request: %s", err)
@@ -52,4 +67,25 @@ func (s *server) removeConnection(conn *connection) {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 	delete(s.connections, conn)
+}
+
+func (s *server) Run() {
+	for rec := range s.commands {
+		go rec.cmd(rec.conn, s, rec.body)
+	}
+}
+
+func (s *server) performCommand(conn *connection, command string, body []byte) {
+	switch command {
+	case "fetch":
+		s.addCommand(conn, cmdFetch, body)
+	}
+}
+
+func (s *server) addCommand(conn *connection, cmd commandPerformer, body []byte) {
+	s.commands <- commandPerformerRec{
+		conn: conn,
+		cmd:  cmd,
+		body: body,
+	}
 }

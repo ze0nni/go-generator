@@ -9,10 +9,11 @@ import (
 func main() {
 	r := gin.Default()
 
-	err := webserver.Apply(r)
+	server, err := webserver.Apply(r)
 	if err != nil {
 		panic(err)
 	}
 
+	go server.Run()
 	r.Run("localhost:80")
 }
